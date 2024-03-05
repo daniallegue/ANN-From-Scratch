@@ -84,11 +84,11 @@ plt.show()
 # Since we want unbiased estimates and good performing predictions, we will make a 70/30 split
 split_index = int(0.7 * X_data.shape[0])
 X_train = X_data[:split_index]
-# X_train = X_train.transpose()
+X_train = X_train.transpose()
 X_test = X_data[split_index:]
 X_test = X_test.transpose()
 y_train = y_data[:split_index]
-# y_train = y_train.transpose()
+y_train = y_train.transpose()
 y_test = y_data[split_index:]
 y_test = y_test.transpose()
 
@@ -101,87 +101,94 @@ y_test = y_test.transpose()
 # We will stop training after a certain number of iterations (epochs), or after the error stops decreasing or the error is below a certain threshold.
 
 # %%
-# Define multi-layer perceptron
-class MLP:
-    def __init__(self, layer_sizes):
-        self.layer_sizes = layer_sizes
-        self.weights = []
-        self.biases = []
-        self._init_params()
+# Define Layer class
+class Layer:
+    def __init__(self, input_size, output_size, activation=None):
+        self.weights = np.random.randn(output_size, input_size) * np.sqrt(2. / input_size)
+        self.biases = np.zeros((output_size, 1))
+        self.activation = activation
 
-    def _init_params(self):
-        for i in range(len(self.layer_sizes) - 1):
-            weight = np.random.randn(self.layer_sizes[i], self.layer_sizes[i + 1]) * np.sqrt(2. / self.layer_sizes[i])
-            bias = np.zeros((1, self.layer_sizes[i + 1]))
-            self.weights.append(weight)
-            self.biases.append(bias)
+    def activate(self, x):
+        if self.activation == 'sigmoid':
+            return 1 / (1 + np.exp(-x))
+        elif self.activation == 'relu':
+            return np.maximum(0, x)
+        elif self.activation == 'softmax':
+            e_x = np.exp(x - np.max(x, axis=0))
+            return e_x / np.sum(e_x, axis=0)
+        return x
 
-    def _relu(self, Z):
-        return np.maximum(0, Z)
+    def derivative(self, x):
+        if self.activation == 'sigmoid':
+            return x * (1 - x)
+        elif self.activation == 'relu':
+            return np.where(x <= 0, 0, 1)
+        elif self.activation == 'softmax':
+            return x * (1 - x)  # Note: This is not used directly, handled in cross-entropy derivative
+        return 1
 
-    def _softmax(self, Z):
-        e_Z = np.exp(Z - np.max(Z, axis=1, keepdims=True))
-        return e_Z / np.sum(e_Z, axis=1, keepdims=True)
 
-    def _relu_derivative(self, Z):
-        return Z > 0
+class MultilayerPerceptron:
+    def __init__(self, layers):
+        self.layers = layers
 
-    def _forward(self, X):
-        A = X
-        cache = []
-        for i in range(len(self.weights) - 1):
-            Z = np.dot(A, self.weights[i]) + self.biases[i]
-            A = self._relu(Z)
-            cache.append((A, Z))
-        Z = np.dot(A, self.weights[-1]) + self.biases[-1]
-        A = self._softmax(Z)
-        cache.append((A, Z))
-        return A, cache
+    def forward_pass(self, X):
+        activation = X
+        activations = [X]  # List of all activations, layer by layer
+        zs = []  # List of all z vectors, layer by layer
 
-    def _backward(self, X, Y, cache):
-        m = Y.shape[0]
-        gradients = []
-        A_final, Z_final = cache[-1]
-        dZ = A_final - Y  # For softmax with cross-entropy loss
-        for i in reversed(range(len(self.weights))):
-            A_prev, Z = cache[i - 1] if i > 0 else (X, None)
-            dW = np.dot(A_prev.T, dZ) / m
-            db = np.sum(dZ, axis=0, keepdims=True) / m
-            if i > 0:
-                dA_prev = np.dot(dZ, self.weights[i].T)
-                dZ = dA_prev * self._relu_derivative(Z)
-            gradients.insert(0, (dW, db))
-        return gradients
+        for layer in self.layers:
+            z = np.dot(layer.weights, activation) + layer.biases
+            activation = layer.activate(z)
+            zs.append(z)
+            activations.append(activation)
 
-    def _update_params(self, gradients, lr):
-        for i in range(len(self.weights)):
-            self.weights[i] -= lr * gradients[i][0]
-            self.biases[i] -= lr * gradients[i][1]
+        return activations, zs
 
-    def train(self, X, Y, epochs, lr):
-        losses = []
+    def backpropagation(self, X, y):
+        nabla_b = [np.zeros(layer.biases.shape) for layer in self.layers]
+        nabla_w = [np.zeros(layer.weights.shape) for layer in self.layers]
+
+        activations, zs = self.forward_pass(X)
+        delta = self.cost_derivative(activations[-1], y) * self.layers[-1].derivative(activations[-1])
+        nabla_b[-1] = np.sum(delta, axis=1, keepdims=True)  # Sum over samples for biases
+        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
+
+        for l in range(2, len(self.layers) + 1):
+            z = zs[-l]
+            sp = self.layers[-l].derivative(activations[-l])
+            delta = np.dot(self.layers[-l + 1].weights.transpose(), delta) * sp
+            nabla_b[-l] = np.sum(delta, axis=1, keepdims=True)  # Similarly sum over samples
+            nabla_w[-l] = np.dot(delta, activations[-l - 1].transpose())
+
+        return nabla_b, nabla_w
+
+    def update_parameters(self, X, y, eta):
+        nabla_b, nabla_w = self.backpropagation(X, y)
+        for l in range(len(self.layers)):
+            self.layers[l].weights -= eta * nabla_w[l]
+            self.layers[l].biases -= eta * nabla_b[l]
+
+    def train(self, X, y, epochs, eta):
         for epoch in range(epochs):
-            A, cache = self._forward(X)
-            gradients = self._backward(X, Y, cache)
-            self._update_params(gradients, lr)
-            loss = -np.mean(Y * np.log(A + 1e-7))  # Cross-entropy loss
-            losses.append(loss)
+            # Update model using the entire dataset
+            self.update_parameters(X, y, eta)
+            print(f"Epoch {epoch} complete")
 
-        return losses
+    def update_parameters(self, X, y, eta):
+        # Compute gradients for the whole dataset
+        nabla_b, nabla_w = self.backpropagation(X, y)
+        for l in range(len(self.layers)):
+            self.layers[l].weights -= eta * nabla_w[l]
+            self.layers[l].biases -= eta * nabla_b[l]
 
-
-    def predict_proba(self, X):
-        A, _ = self._forward(X)
-        return A
-
-    def predict(self, X):
-        probabilities = self.predict_proba(X)
-        return np.argmax(probabilities, axis=1)
+    def cost_derivative(self, output_activations, y):
+        return (output_activations - y)
 
 # %%
 # Create instance of MLP
 # 2 Hidden Layers with 5 neurons each
-mlp = MLP([10, 5, 7])
+mlp = MultilayerPerceptron([Layer(10, 5, 'relu'), Layer(5, 5, 'relu'), Layer(5, 7, 'softmax')])
 losses = mlp.train(X_train, y_train, 100, 0.1)
 
 
