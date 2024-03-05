@@ -81,7 +81,7 @@ plt.show()
 
 # %%
 # Q7 - Train the model
-# Since we want unbiased estimates and good performing predictions, we will make a 70/30 split. TODO (To add more)
+# Since we want unbiased estimates and good performing predictions, we will make a 70/30 split
 split_index = int(0.7 * X_data.shape[0])
 X_train = X_data[:split_index]
 # X_train = X_train.transpose()
