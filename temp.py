@@ -127,6 +127,7 @@ class Layer:
             return x * (1 - x)  # Note: This is not used directly, handled in cross-entropy derivative
         return 1
 
+# %%
 
 class MultilayerPerceptron:
     def __init__(self, layers):
@@ -144,6 +145,13 @@ class MultilayerPerceptron:
             activations.append(activation)
 
         return activations, zs
+
+    def cross_entropy_loss(self, activations, y):
+        m = y.shape[1]
+        y = np.clip(y, 0, activations.shape[0] - 1)
+        log_likelihood = -np.log(activations[y, np.arange(m)] + 1e-9)
+        loss = np.sum(log_likelihood) / m
+        return loss
 
     def backpropagation(self, X, y):
         nabla_b = [np.zeros(layer.biases.shape) for layer in self.layers]
@@ -170,10 +178,13 @@ class MultilayerPerceptron:
             self.layers[l].biases -= eta * nabla_b[l]
 
     def train(self, X, y, epochs, eta):
+        losses = []
         for epoch in range(epochs):
-            # Update model using the entire dataset
             self.update_parameters(X, y, eta)
-            print(f"Epoch {epoch} complete")
+            activations, _ = self.forward_pass(X)
+            loss = self.cross_entropy_loss(activations[-1], y)
+            losses.append(loss)
+            print(f"Epoch {epoch} complete. Loss: {loss}")
 
     def update_parameters(self, X, y, eta):
         # Compute gradients for the whole dataset
@@ -185,11 +196,25 @@ class MultilayerPerceptron:
     def cost_derivative(self, output_activations, y):
         return (output_activations - y)
 
+    def predict(self, X):
+        activations, _ = self.forward_pass(X)
+        print(len(activations))
+        return np.argmax(activations[-1])
+
 # %%
 # Create instance of MLP
 # 2 Hidden Layers with 5 neurons each
 mlp = MultilayerPerceptron([Layer(10, 5, 'relu'), Layer(5, 5, 'relu'), Layer(5, 7, 'softmax')])
-losses = mlp.train(X_train, y_train, 100, 0.1)
+losses = mlp.train(X_train, y_train, 300, 0.1)
+
+# %%
+# Predictions + accuracy
+predictions = [mlp.predict(X_test[:, i]) for i in range(X_test.shape[1])]
+accuracy = np.mean(predictions == y_test)
+print(predictions[:10])
+print(f'acc: {accuracy}')
+
+
 
 
 
