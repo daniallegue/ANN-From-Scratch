@@ -77,7 +77,7 @@ plt.show()
 
 # %%
 # Q6 - Create an schematic diagram of the architecture
-# TODO (Diagram to be created)
+# DONE
 
 # %%
 # Q7 - Train the model
