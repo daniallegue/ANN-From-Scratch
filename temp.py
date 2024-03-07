@@ -103,121 +103,258 @@ y_test = y_test.transpose()
 # %%
 # Define Layer class
 class Layer:
-    def __init__(self, input_size, output_size, activation=None):
-        self.weights = np.random.randn(output_size, input_size) * np.sqrt(2. / input_size)
-        self.biases = np.zeros((output_size, 1))
+    def __init__(self, in_features, out_features, initialization, activation):
+        """ Randomly initialize the weights and biases.
+
+        Args:
+            in_features: number of input features.
+            out_features: number of output features.
+        """
+
+        self.weight, self.bias = initialization(in_features, out_features)
+        self.cache = None
+        # For storing the gradients w.r.t. the weight and the bias
+        self.weight_grad = None
         self.activation = activation
+        self.bias_grad = None
 
-    def activate(self, x):
-        if self.activation == 'sigmoid':
-            return 1 / (1 + np.exp(-x))
-        elif self.activation == 'relu':
-            return np.maximum(0, x)
-        elif self.activation == 'softmax':
-            e_x = np.exp(x - np.max(x, axis=0))
-            return e_x / np.sum(e_x, axis=0)
-        return x
+    def forward(self, x):
+        """ Perform the forward pass of a linear layer.
+        Store (cache) the input, so it can be used in the backward pass.
 
-    def derivative(self, x):
-        if self.activation == 'sigmoid':
-            return x * (1 - x)
-        elif self.activation == 'relu':
-            return np.where(x <= 0, 0, 1)
-        elif self.activation == 'softmax':
-            return x * (1 - x)  # Note: This is not used directly, handled in cross-entropy derivative
-        return 1
+        Args:
+            x: input of a linear layer.
 
+        Returns:
+            y: output of a linear layer.
+        """
+        self.cache = x
+        z = x @ self.weight + self.bias
+        return self.activation.forward(z)
+
+    def backward(self, dupstream):
+        """ Perform the backward pass of a linear layer.
+
+        Args:
+            dupstream: upstream gradient.
+
+        Returns:
+            dx: downstream gradient.
+        """
+
+        dupstream = self.activation.backward(dupstream)
+
+        self.weight_grad = self.cache.T @ dupstream
+        self.bias_grad = np.sum(dupstream, axis=0, keepdims=True)
+        return dupstream @ self.weight.T
 # %%
 
-class MultilayerPerceptron:
+def uniform_initialization(f_in, f_out):
+    weight = np.random.rand(f_in, f_out)
+    bias = np.random.rand(1, f_out)
+    return weight, bias
+
+def normal_initialization(f_in, f_out):
+    weight = np.random.randn(f_in, f_out)
+    bias = np.random.randn(1, f_out)
+    return weight,bias
+
+def exp_initialization(f_in, f_out):
+    weight = np.random.exponential((f_in, f_out), 2)
+    bias = np.random.exponential((1, f_out), 2)
+    return weight,bias
+
+def he_initialization(f_in, f_out):
+    weight = np.random.randn(f_in, f_out) * np.sqrt(2 / f_in)
+    bias = np.zeros((1, f_out))
+    return weight, bias
+
+def constant_initialization(f_in, f_out):
+    constant = np.random.randint(1, 10)
+    weight = np.full((f_in, f_out), constant)
+    bias = np.full((1, f_out), constant)
+    return weight, bias
+
+
+class ReLU:
+    def __init__(self):
+        self.cache = None
+
+    def forward(self, x):
+        self.cache = x
+        return np.maximum(0, x)
+
+    def backward(self, dupstream):
+        return dupstream * (self.cache > 0)
+
+
+# %%
+class SoftMax:
+    def __init__(self):
+        self.cache = None
+
+    def forward(self, x):
+        """ Perform a forward pass of your activation function.
+        Store (cache) the output, so it can be used in the backward pass.
+
+        Args:
+            x: input to the activation function.
+
+        Returns:
+            y: output of the activation function.
+        """
+        shiftx = x - np.max(x, axis=1, keepdims=True)
+        exps = np.exp(shiftx)
+        softmax = exps / np.sum(exps, axis=1, keepdims=True)
+        self.cache = softmax
+        return softmax
+
+    def backward(self, dupstream):
+        """ Perform a backward pass of the activation function.
+        Make sure you do not modify the original dupstream.
+
+        Args:
+            dupstream: upstream gradient.
+
+        Returns:
+            dx: downstream gradient.
+        """
+        softmax = self.cache
+        return dupstream * softmax * (1 - softmax)
+
+# %%
+class Network:
     def __init__(self, layers):
         self.layers = layers
 
-    def forward_pass(self, X):
-        activation = X
-        activations = [X]  # List of all activations, layer by layer
-        zs = []  # List of all z vectors, layer by layer
+    def forward(self, x):
+        """ Perform a forward pass over the entire network.
+
+        Args:
+            x: input data.
+
+        Returns:
+            y: predictions.
+        """
+
+        y = x
+        for layer in self.layers:
+            y = layer.forward(y)
+        return y
+
+    def backward(self, dupstream):
+        """ Perform a backward pass over the entire network.
+
+        Args:
+            dupstream: upstream gradient.
+
+        Returns:
+            dx: downstream gradient.
+        """
+
+        dx = dupstream
+        for layer in reversed(self.layers):
+            dx = layer.backward(dx)
+        return dx
+
+    def optimizer_step(self, lr):
+        """ Update the weight and bias parameters of each layer.
+
+        Args:
+            lr: learning rate.
+        """
 
         for layer in self.layers:
-            z = np.dot(layer.weights, activation) + layer.biases
-            activation = layer.activate(z)
-            zs.append(z)
-            activations.append(activation)
-
-        return activations, zs
-
-    def cross_entropy_loss(self, activations, y):
-        m = y.shape[1]
-        y = np.clip(y, 0, activations.shape[0] - 1)
-        log_likelihood = -np.log(activations[y, np.arange(m)] + 1e-9)
-        loss = np.sum(log_likelihood) / m
-        return loss
-
-    def backpropagation(self, X, y):
-        nabla_b = [np.zeros(layer.biases.shape) for layer in self.layers]
-        nabla_w = [np.zeros(layer.weights.shape) for layer in self.layers]
-
-        activations, zs = self.forward_pass(X)
-        delta = self.cost_derivative(activations[-1], y) * self.layers[-1].derivative(activations[-1])
-        nabla_b[-1] = np.sum(delta, axis=1, keepdims=True)  # Sum over samples for biases
-        nabla_w[-1] = np.dot(delta, activations[-2].transpose())
-
-        for l in range(2, len(self.layers) + 1):
-            z = zs[-l]
-            sp = self.layers[-l].derivative(activations[-l])
-            delta = np.dot(self.layers[-l + 1].weights.transpose(), delta) * sp
-            nabla_b[-l] = np.sum(delta, axis=1, keepdims=True)  # Similarly sum over samples
-            nabla_w[-l] = np.dot(delta, activations[-l - 1].transpose())
-
-        return nabla_b, nabla_w
-
-    def update_parameters(self, X, y, eta):
-        nabla_b, nabla_w = self.backpropagation(X, y)
-        for l in range(len(self.layers)):
-            self.layers[l].weights -= eta * nabla_w[l]
-            self.layers[l].biases -= eta * nabla_b[l]
-
-    def train(self, X, y, epochs, eta):
-        losses = []
-        for epoch in range(epochs):
-            self.update_parameters(X, y, eta)
-            activations, _ = self.forward_pass(X)
-            loss = self.cross_entropy_loss(activations[-1], y)
-            losses.append(loss)
-            print(f"Epoch {epoch} complete. Loss: {loss}")
-
-    def update_parameters(self, X, y, eta):
-        # Compute gradients for the whole dataset
-        nabla_b, nabla_w = self.backpropagation(X, y)
-        for l in range(len(self.layers)):
-            self.layers[l].weights -= eta * nabla_w[l]
-            self.layers[l].biases -= eta * nabla_b[l]
-
-    def cost_derivative(self, output_activations, y):
-        return (output_activations - y)
-
-    def predict(self, X):
-        activations, _ = self.forward_pass(X)
-        print(len(activations))
-        return np.argmax(activations[-1])
+            layer.weight = layer.weight - lr * layer.weight_grad
+            layer.bias = layer.bias - lr * layer.bias_grad
 
 # %%
-# Create instance of MLP
-# 2 Hidden Layers with 5 neurons each
-mlp = MultilayerPerceptron([Layer(10, 5, 'relu'), Layer(5, 5, 'relu'), Layer(5, 7, 'softmax')])
-losses = mlp.train(X_train, y_train, 300, 0.1)
+def loss(y_true, y_pred):
+    """ Computes the value of the loss function and its gradient.
+
+    Args:
+        y_true: ground truth labels.
+        y_pred: predicted labels.
+
+    Returns:
+        loss: value of the loss.
+        grad: gradient of loss with respect to the predictions.
+    """
+
+    epsilon = 1e-15
+    y_pred = np.clip(y_pred, epsilon, 1 - epsilon)
+    loss = -np.sum(y_true * np.log(y_pred)) / y_true.shape[0]
+    grad = y_pred - y_true
+    return loss, grad
 
 # %%
-# Predictions + accuracy
-predictions = [mlp.predict(X_test[:, i]) for i in range(X_test.shape[1])]
-accuracy = np.mean(predictions == y_test)
-print(predictions[:10])
-print(f'acc: {accuracy}')
+def one_hot_encode(y, num_classes):
+    """Converts a vector of labels to one-hot encoded format.
 
+    Args:
+        y: Array of labels, shape (num_samples,).
+        num_classes: Number of classes.
 
+    Returns:
+        One-hot encoded labels, shape (num_samples, num_classes).
+    """
+    y = y.astype(int) - 1
 
+    one_hot = np.zeros((y.size, num_classes))
+    one_hot[np.arange(y.size), y] = 1
+    return one_hot
 
+# %%
+def train(net, inputs, labels, criterion, lr, epochs):
+    losses = []
+    accuracies = []
 
+    for _ in range(epochs):
+        predictions = net.forward(inputs)
+        loss, grad = criterion(labels, predictions)
+        net.backward(grad)
+        net.optimizer_step(lr)
+
+        losses.append(loss)
+
+        pred_labels = np.argmax(predictions, axis=1)
+        true_labels = np.argmax(labels, axis=1)  # Adjust if `labels` is already not one-hot
+        accuracy = np.sum(pred_labels == true_labels) / len(labels)
+        accuracies.append(accuracy)
+
+    return losses, accuracies
+
+# %%
+combined_data = np.column_stack((X_data, y_data))
+np.random.shuffle(combined_data)
+features = combined_data[:, :-1]
+targets = combined_data[:, -1]
+
+split_index = int(0.7 * features.shape[0])
+X_train = features[:split_index]
+# X_train = X_train.transpose()
+X_test = features[split_index:]
+X_test = X_test.transpose() # TODO: transpose?
+y_train = targets[:split_index]
+y_train = one_hot_encode(y_train, 7)
+# y_train = y_train.transpose()
+y_test = targets[split_index:]
+y_test = y_test.transpose()
+
+# %%
+epochs = 25
+
+initialization_functions = [(normal_initialization, 'Normal Distribution'),
+                            (exp_initialization, 'Exponential Distribution'),
+                            (uniform_initialization, 'Uniform Distribution'), (constant_initialization, 'Constant'),
+                            (he_initialization, 'He')]
+
+relu = ReLU()
+softmax = SoftMax()
+
+layers = [Layer(10, 8, he_initialization,relu ), Layer(8, 8, he_initialization, relu), Layer(8, 8, he_initialization, relu), Layer(8, 7, normal_initialization, softmax)]
+network = Network(layers)
+losses, accuracies = train(network, X_train, y_train, loss, 0.0001, epochs)
 
 
 
