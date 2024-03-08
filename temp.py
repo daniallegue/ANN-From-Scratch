@@ -342,7 +342,7 @@ y_test = targets[split_index:]
 y_test = y_test.transpose()
 
 # %%
-epochs = 25
+epochs = 100
 
 initialization_functions = [(normal_initialization, 'Normal Distribution'),
                             (exp_initialization, 'Exponential Distribution'),
@@ -354,7 +354,7 @@ softmax = SoftMax()
 
 layers = [Layer(10, 8, he_initialization,relu ), Layer(8, 8, he_initialization, relu), Layer(8, 8, he_initialization, relu), Layer(8, 7, normal_initialization, softmax)]
 network = Network(layers)
-losses, accuracies = train(network, X_train, y_train, loss, 0.0001, epochs)
+losses, accuracies = train(network, X_train, y_train, loss, 0.001, epochs)
 
 
 
