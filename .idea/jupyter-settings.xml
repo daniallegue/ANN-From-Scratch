@@ -3,6 +3,14 @@
   <component name="JupyterPersistentConnectionParameters">
     <option name="moduleParameters">
       <map>
+        <entry key="$PROJECT_DIR$/.idea/ANN-CI-Assigment.iml">
+          <value>
+            <JupyterConnectionParameters>
+              <option name="managed" value="true" />
+              <option name="sdkName" value="Python 3.11 (dataM)" />
+            </JupyterConnectionParameters>
+          </value>
+        </entry>
         <entry key="$PROJECT_DIR$/../Data Mining Labs/.idea/Data Mining Labs.iml">
           <value>
             <JupyterConnectionParameters>
